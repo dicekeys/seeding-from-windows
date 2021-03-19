@@ -106,7 +106,7 @@ namespace DiceKeysWindowsCommandLine
             // payload:  version  seedKey  extState
             if (seed.Length != 32)
             {
-                // FIXME -- throw error
+                Console.WriteLine($"Invalid seed length");
                 return false;
             }
             byte[] version = new byte[1];
@@ -114,12 +114,24 @@ namespace DiceKeysWindowsCommandLine
             byte[] data = version.Concat(seed).ToArray();
             byte[] writeSeedPacket = createInitPacket(channel, COMMAND_WRITE_SEED, data);
             writeReport(hidDeviceFileHandle, writeSeedPacket);
+            Console.WriteLine($"Press the button on your SoloKey 3 times.");
             while (true)
             {
                 HidInitPacket packet = new HidInitPacket(readReport(hidDeviceFileHandle));
                 if (packet.channel == channel)
                 {
-                    Console.WriteLine($"SoloKey responds: {packet.command == COMMAND_WRITE_SEED}");
+                    switch (packet.command)
+                    {
+                        case COMMAND_WRITE_SEED:
+                            Console.WriteLine($"SoloKey reports seeding succeeded.");
+                            break;
+                        case COMMAND_ERROR:
+                            Console.WriteLine($"SoloKey returned error {packet.data[0]:X}");
+                            break;
+                        default:
+                            Console.WriteLine($"SoloKey returned unexpected reponse command {packet.command:X}");
+                            break;
+                    }
                     return packet.command == COMMAND_WRITE_SEED;
                 }
             }
@@ -190,20 +202,28 @@ namespace DiceKeysWindowsCommandLine
                 HidP_GetCaps(preparsedDataPointer, ref hidCaps);
                 HidD_FreePreparsedData(ref preparsedDataPointer);
 
-                Console.WriteLine($"Found -> Usage Page: {hidCaps.UsagePage:X}, Usage: {hidCaps.Usage:X} ProductID: {hidAttributes.ProductID:X} VendorID: {hidAttributes.VendorID:X}");
+                // Console.WriteLine($"Found -> Usage Page: {hidCaps.UsagePage:X}, Usage: {hidCaps.Usage:X} ProductID: {hidAttributes.ProductID:X} VendorID: {hidAttributes.VendorID:X}");
 
+                // FIXME -- these are hard coded for SoloKeys.  Move to configuration code.
                 if (hidCaps.UsagePage == 0xF1D0 && hidCaps.Usage == 0x0001 && hidAttributes.ProductID == 0xA2CA && hidAttributes.VendorID == 0x0483)
                 {
                     solokeyDevicePathsFound.Add(functionClassDeviceData.DevicePath);
-                    Console.WriteLine($"SoloKey path: {functionClassDeviceData.DevicePath}, Buffer Length: {hidCaps.OutputReportByteLength}");
+                    Console.WriteLine($"Writing to SoloKey at path: {functionClassDeviceData.DevicePath}"); // , Buffer Length: {hidCaps.OutputReportByteLength}
                     seedSoloKey(hidDeviceFileHandle, seed);
                 }
-
                 CloseHandle(hidDeviceFileHandle);
-
             }
 
             SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
+
+            if (solokeyDevicePathsFound.Count == 0)
+            {
+                Console.WriteLine("No SoloKeys found.");
+                Console.WriteLine("Be sure to connect a SoloKey before running this command.");
+                Console.WriteLine("If one was connected, make sure you are running this command as Administrator.");
+                Console.WriteLine("(Run this command in powershell running as Administrator.)");
+            }
+
             return solokeyDevicePathsFound;
         }
 
